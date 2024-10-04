@@ -1,11 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ImageSelect } from '@/types/ImageSelect';
-import CustomSelectSearch from '@/components/CustomSelectSearch';
 import tokens from '../../data/token.json';
 import { ethers } from 'ethers';
-import { getTokenBalance, approveToken } from '../../utils/TokenUtils';
+import { getTokenBalance, approveToken, getTokenInfo } from '../../utils/TokenUtils';
 import { getPoolByPairs } from '../../utils/Factory'; 
 import { provideLiquidity } from '../../utils/CoFinance';
+import CreatableSelect from 'react-select/creatable';
+import { components } from 'react-select';
+
+const customStyles = {
+  control: (base) => ({
+    ...base,
+    background: 'rgba(0, 0, 0, 0.7)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    color: 'white',
+  }),
+  menu: (base) => ({
+    ...base,
+    background: 'rgba(0, 0, 0, 0.7)',
+  }),
+  option: (base, { isFocused }) => ({
+    ...base,
+    background: isFocused ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+    color: 'white',
+  }),
+  singleValue: (base) => ({
+    ...base,
+    color: 'white',
+  }),
+};
+
+const CustomOption = (props) => (
+  <components.Option {...props}>
+    <div className="flex items-center">
+      <img src={props.data.image} alt={props.data.label} className="w-6 h-6 mr-2 rounded-full" />
+      {props.data.label}
+    </div>
+  </components.Option>
+);
 
 interface AddLiquidityModalProps {
   open: boolean;
@@ -13,7 +45,6 @@ interface AddLiquidityModalProps {
   tokenA: ImageSelect | null;
   tokenB: ImageSelect | null;
 }
-
 
 const AddLiquidityModal: React.FC<AddLiquidityModalProps> = ({ open, onClose, tokenA, tokenB }) => {
   const [selectedTokenA, setSelectedTokenA] = useState<ImageSelect | null>(tokenA);
@@ -26,11 +57,11 @@ const AddLiquidityModal: React.FC<AddLiquidityModalProps> = ({ open, onClose, to
   const [account, setAccount] = useState<string | null>(null); 
   const [loading, setLoading] = useState<boolean>(false); 
   const providerRef = useRef<ethers.BrowserProvider | null>(null);
-  const defaultTokenOptions = tokens.tokens.map(token => ({
+  const [tokenOptions, setTokenOptions] = useState(tokens.tokens.map(token => ({
     value: token.address,
     label: token.name,
     image: token.image,
-  }));
+  })));
 
   useEffect(() => {
     const loadAccountAndPools = async () => {
@@ -87,21 +118,45 @@ const AddLiquidityModal: React.FC<AddLiquidityModalProps> = ({ open, onClose, to
     fetchPool();
   }, [selectedTokenA, selectedTokenB]);
 
+  const handleCustomTokenInput = async (input: string, setSelectedToken: React.Dispatch<React.SetStateAction<ImageSelect | null>>) => {
+    if (ethers.isAddress(input)) {
+      const provider = providerRef.current;
+      if (!provider) return;
+
+      try {
+        const tokenInfo = await getTokenInfo(provider, input);
+        if (tokenInfo) {
+          setTokenOptions((prevOptions) => [...prevOptions, tokenInfo]);
+          setSelectedToken({
+            value: tokenInfo.address,
+            label: tokenInfo.name,
+            image: tokenInfo.image,
+          });
+        } else {
+          alert('Failed to fetch token info');
+        }
+      } catch (error) {
+        console.error('Error fetching token info:', error);
+      }
+    } else {
+      alert('Invalid address');
+    }
+  };
+
   const handleConfirm = async () => {
     if (!account || !selectedTokenA || !selectedTokenB || !poolAddressFromAPI || !providerRef.current) return;
-  
+
     try {
       await approveToken(providerRef.current, selectedTokenA.value, poolAddressFromAPI, amountA.toString());
       await approveToken(providerRef.current, selectedTokenB.value, poolAddressFromAPI, amountB.toString());      
       await provideLiquidity(providerRef.current, poolAddressFromAPI, amountA.toString(), amountB.toString());
       console.log("Liquidity added successfully:", selectedTokenA.label, selectedTokenB.label, amountA, amountB);
       alert(`Successfully added liquidity: ${amountA} ${selectedTokenA.label} and ${amountB} ${selectedTokenB.label}`);
-      onClose(); // Close the modal after successful liquidity provision
+      onClose(); 
     } catch (error) {
       console.error('Error during liquidity provision:', error);
     }
   };
-  
 
   if (!open) return null;
 
@@ -112,12 +167,16 @@ const AddLiquidityModal: React.FC<AddLiquidityModalProps> = ({ open, onClose, to
         <form onSubmit={(e) => { e.preventDefault(); handleConfirm(); }}>
           <div className="mb-4">
             <p className="text-gray-500 text-md uppercase">Token A:</p>
-            <CustomSelectSearch
-              tokenOptions={defaultTokenOptions}
-              handleOnChange={setSelectedTokenA}
-              handleValue={selectedTokenA}
-              className="border-none hover:border-0"
-              placeholder="Choose Token A"
+            <CreatableSelect
+              isClearable
+              options={tokenOptions}
+              value={selectedTokenA}
+              onChange={setSelectedTokenA}
+              onCreateOption={(inputValue) => handleCustomTokenInput(inputValue, setSelectedTokenA)}
+              styles={customStyles}
+              components={{ Option: CustomOption }}
+              placeholder="Select or Enter Token A"
+              className="w-full"
             />
             <p className="text-gray-300">Available Balance: {balanceA}</p>
             <input 
@@ -130,12 +189,16 @@ const AddLiquidityModal: React.FC<AddLiquidityModalProps> = ({ open, onClose, to
           </div>
           <div className="mb-4">
             <p className="text-gray-500 text-md uppercase">Token B:</p>
-            <CustomSelectSearch
-              tokenOptions={defaultTokenOptions}
-              handleOnChange={setSelectedTokenB}
-              handleValue={selectedTokenB}
-              className="border-none hover:border-0"
-              placeholder="Choose Token B"
+            <CreatableSelect
+              isClearable
+              options={tokenOptions}
+              value={selectedTokenB}
+              onChange={setSelectedTokenB}
+              onCreateOption={(inputValue) => handleCustomTokenInput(inputValue, setSelectedTokenB)}
+              styles={customStyles}
+              components={{ Option: CustomOption }}
+              placeholder="Select or Enter Token B"
+              className="w-full"
             />
             <p className="text-gray-300">Available Balance: {balanceB}</p>
             <input 
